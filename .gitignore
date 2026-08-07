@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Raw hosted data cache is never committed - it loads from the hosted ZIP via
+# src/data_access.py. Leading slash anchors this to the PROJECT ROOT only, so
+# it does not also match results/data/ (a nested folder that happens to share
+# the name "data" but holds precomputed outputs we DO want committed).
+/data/
+*.parquet
+
+# Block CSVs everywhere EXCEPT the precomputed outputs under results/ that the
+# app and the brief require to be committed.
+*.csv
+!results/**/*.csv
+
+# Secrets / local
+.streamlit/secrets.toml
+.env
