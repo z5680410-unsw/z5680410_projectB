@@ -16,17 +16,16 @@ import pandas as pd  # noqa: E402
 
 from src import data_access, features, fusion, etl, sentiment, exhibits, portfolios  # noqa: E402
 
-# One fund grid entry per asset universe. estimation_window and
-# rebalance_every are expressed in ROWS of that universe's own returns
-# panel, so they are set separately for crypto (365-day calendar) vs
-# equity/combined (252-day calendar) to represent the SAME ~1 year lookback
-# and ~1 month rebalance in calendar time, not the same row count.
+# One fund grid entry per asset universe - expanding window, monthly
+# rebalance, first live date 2021-01-01 for all three universes (see
+# src/portfolios.py:oos_backtest for the full walk-forward design).
 UNIVERSE_CONFIG = {
     # filled in with the actual returns panels inside main()
-    "Equity":   dict(periods_per_year=252, estimation_window=252, rebalance_every=21),
-    "Crypto":   dict(periods_per_year=365, estimation_window=365, rebalance_every=30),
-    "Combined": dict(periods_per_year=252, estimation_window=252, rebalance_every=21),
+    "Equity":   dict(periods_per_year=252, first_live_date="2021-01-01"),
+    "Crypto":   dict(periods_per_year=365, first_live_date="2021-01-01"),
+    "Combined": dict(periods_per_year=252, first_live_date="2021-01-01"),
 }
+
 METHOD_LABELS = {
     "equal_weight": "Equal-Weight",
     "min_variance": "Min-Variance",
@@ -69,8 +68,7 @@ def main():
     print("\n" + stats.to_string(index=False))
 
     # ------------------------------------------------------------------
-    # Station 3a - funds: walk-forward OOS backtest, 3 universes x 4 methods
-    # (Fase 1-2)
+    # Station 3a - funds: walk-forward OOS backtest, 3 universes x 5 methods
     # ------------------------------------------------------------------
     UNIVERSE_CONFIG["Equity"]["returns"] = equity_returns
     UNIVERSE_CONFIG["Crypto"]["returns"] = crypto_returns
@@ -87,8 +85,7 @@ def main():
             fund_universe[fund_name] = (universe_name, method)
             result = portfolios.oos_backtest(
                 cfg["returns"], method=method,
-                estimation_window=cfg["estimation_window"],
-                rebalance_every=cfg["rebalance_every"],
+                first_live_date=cfg["first_live_date"],
                 periods_per_year=cfg["periods_per_year"],
             )
             fund_backtests[fund_name] = result
@@ -115,8 +112,7 @@ def main():
           f"{fund_weights_path.name} {fund_weights_df.shape}")
 
     # ------------------------------------------------------------------
-    # Station 3b - fact sheet: performance table + the 4 required exhibits
-    # (Fase 3)
+    # Station 3b - fact sheet: performance table + the required exhibits
     # ------------------------------------------------------------------
     perf_table = exhibits.build_performance_table(fund_backtests, fund_universe,
                                                   portfolios.performance_metrics)
@@ -139,7 +135,6 @@ def main():
 
     # ------------------------------------------------------------------
     # Station 3c - sentiment: score headlines, sector index, fear & greed
-    # (Fase 4-5)
     # ------------------------------------------------------------------
     print("\n[Station 3] scoring headlines with VADER + finVADER "
           f"({len(headline_panel):,} headlines, ~20-30s)...")
@@ -160,12 +155,16 @@ def main():
         sector_index, exhibits.RESULTS_FIGURES_DIR / "sector_sentiment_index.png")
     exhibits.plot_fear_greed_index(
         fear_greed, exhibits.RESULTS_FIGURES_DIR / "fear_greed_index.png")
-    print("[Station 3] saved sector_sentiment_index.png and fear_greed_index.png")
+    exhibits.plot_lexicon_comparison(
+        ticker_day_scores, trading_calendar,
+        exhibits.RESULTS_FIGURES_DIR / "lexicon_comparison.png")
+    print("[Station 3] saved sector_sentiment_index.png, fear_greed_index.png, "
+          "and lexicon_comparison.png")
 
     # ------------------------------------------------------------------
-    # Station 3d - fusion + innovation (Fase 6-7)
+    # Station 3d - fusion + innovation
     # ------------------------------------------------------------------
-    # Discipline (slide 36): tune on DISCOVERY only, reveal HOLDOUT once.
+    # Discipline: tune on DISCOVERY only, reveal HOLDOUT once.
     DISCOVERY_START, DISCOVERY_END = "2021-01-01", "2022-12-31"
     HOLDOUT_START, HOLDOUT_END = "2023-01-01", "2023-12-31"
 

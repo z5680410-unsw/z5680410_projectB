@@ -40,15 +40,15 @@ def _min_variance(window: pd.DataFrame, **kwargs) -> np.ndarray:
 
 def _max_sharpe(window: pd.DataFrame, **kwargs) -> np.ndarray:
     n = window.shape[1]
-    periods = kwargs.get("periods_per_year", 252)
+    periods_per_year = kwargs.get("periods_per_year", 252)
+    mean_ret = window.mean().to_numpy() * periods_per_year
+    cov = window.cov().to_numpy() * periods_per_year
     rf = kwargs.get("rf", 0.0)
-    mean_ann = window.mean().to_numpy() * periods
-    cov_ann = window.cov().to_numpy() * periods
 
     def objective(w):
-        port_ret = w @ mean_ann
-        port_vol = np.sqrt(w @ cov_ann @ w)
-        if port_vol < 1e-10:
+        port_ret = w @ mean_ret
+        port_vol = np.sqrt(w @ cov @ w)
+        if port_vol < 1e-12:
             return 0.0
         return -(port_ret - rf) / port_vol  # minimise negative Sharpe
 
@@ -69,19 +69,19 @@ def _risk_parity(window: pd.DataFrame, **kwargs) -> np.ndarray:
 
     return _solve(objective, n, "risk_parity")
 
+
 def _min_cvar(window: pd.DataFrame, beta: float = 0.95, **kwargs) -> np.ndarray:
-    """Innovation (structured side, slide 23): minimise CVaR ("mean-CVaR"),
-    the expected loss in the worst (1-beta) share of scenarios, via the
+    """Innovation (structured side): minimise CVaR ("mean-CVaR"), the
+    expected loss in the worst (1-beta) share of scenarios, via the
     Rockafellar & Uryasev (2000) linear-programming reformulation - the
     standard, exact way to optimise CVaR without needing it to be smooth.
 
     Unlike the covariance-based methods above, this works directly on the
     RAW historical daily-return scenarios in the window (not an annualised
     covariance matrix), because CVaR is a property of the empirical
-    distribution's tail, not of pairwise covariances. This is the
-    "tail-aware objective" the brief lists as a structured-side extension:
-    variance penalises upside and downside surprises equally, CVaR targets
-    only the worst-outcome tail directly.
+    distribution's tail, not of pairwise covariances. This is a
+    "tail-aware objective": variance penalises upside and downside
+    surprises equally, CVaR targets only the worst-outcome tail directly.
 
     Decision vector is [w (N assets), zeta (1, the VaR threshold),
     u (T scenarios, the shortfall beyond zeta in each scenario)]:
@@ -117,6 +117,7 @@ def _min_cvar(window: pd.DataFrame, beta: float = 0.95, **kwargs) -> np.ndarray:
     w = np.clip(result.x[:N], 0.0, None)
     return w / w.sum()
 
+
 def _solve(objective, n_assets: int, method_name: str) -> np.ndarray:
     """Shared SLSQP solve: long-only (0<=w<=1), fully invested (sum(w)=1).
 
@@ -149,36 +150,34 @@ _OPTIMIZERS = {
 
 
 # ---------------------------------------------------------------------------
-# Walk-forward out-of-sample backtest
-# ---------------------------------------------------------------------------
 
 def oos_backtest(returns: pd.DataFrame, method: str = "min_variance",
-                  estimation_window: int = 252, rebalance_every: int = 21,
+                  first_live_date: str = "2021-01-01",
                   periods_per_year: int = 252, rf: float = 0.0) -> dict:
     """Walk-forward out-of-sample backtest for ONE fund (one asset universe,
-    one optimisation method).
+    one optimisation method), using an EXPANDING estimation window with
+    MONTHLY re-training: estimate on the first year of returns, trade the
+    first live month at those weights, then re-estimate on ALL data seen so
+    far (the window only ever grows, it never rolls off), and repeat once a
+    calendar month through the end of the sample.
 
     `returns` is a WIDE panel: a 'date' column plus one return column per
     asset (as built by features.daily_returns / build_combined_returns_panel).
 
-    No look-ahead: weights formed at each rebalance date use ONLY the
-    `estimation_window` trading days strictly BEFORE that date (a ROLLING
-    window, so the estimate always reflects the recent regime rather than
-    diluting with the full 2020-2023 sample). Weights are then held fixed
-    and applied to REALISED returns until the next rebalance date - that
-    realised-return step is what makes this genuinely out-of-sample rather
-    than an in-sample fit.
+    No look-ahead: at the start of each new calendar month, weights are
+    estimated from every trading day strictly BEFORE that month's first
+    date - never from the current or a future date. Those weights are then
+    held fixed and applied to REALISED returns for the rest of the month.
 
     Returns a dict with:
         daily_returns     - pd.Series (date-indexed) of the fund's realised
-                             daily return
-        weights           - pd.DataFrame, one row per REBALANCE date, one
-                             column per asset (the fund's fact-sheet
-                             "holdings" history)
+                             daily return, from first_live_date onward
+        weights           - pd.DataFrame, one row per MONTHLY rebalance
+                             date, one column per asset (the fund's
+                             fact-sheet "holdings" history)
         growth_of_dollar  - pd.Series, cumulative growth of $1 invested at
                              the first out-of-sample date
-        first_oos_date    - the first live out-of-sample date (state this in
-                             the report, per the brief)
+        first_oos_date    - the first live out-of-sample date
         method, periods_per_year - echoed back for downstream bookkeeping
     """
     if method not in _OPTIMIZERS:
@@ -193,40 +192,44 @@ def oos_backtest(returns: pd.DataFrame, method: str = "min_variance",
     # (see features.daily_returns). The COMBINED panel is trickier: equity's
     # leading-NaN row and crypto's leading-NaN row can fall on DIFFERENT
     # calendar dates (crypto's calendar starts a day earlier), so a plain
-    # "all columns NaN" check would miss it and silently let a
-    # 50-assets-return-exactly-0% artifact into the first estimation
-    # window. Walking forward to the first fully-populated row handles all
-    # three universes the same way. The Station 1 missing-date audit
-    # already confirms 0 missing dates in either source panel, so no other
-    # NaNs are expected; the fillna(0.0) below is a defensive fallback only.
+    # "all columns NaN" check would miss it. Walking forward to the first
+    # fully-populated row handles all three universes the same way.
     first_valid_idx = df[asset_cols].notna().all(axis=1).idxmax()
     df = df.loc[first_valid_idx:].reset_index(drop=True)
     df[asset_cols] = df[asset_cols].fillna(0.0)
 
-    n_dates = len(df)
-    if n_dates <= estimation_window:
+    first_live_date = pd.Timestamp(first_live_date)
+    live_rows = df.index[df["date"] >= first_live_date]
+    if len(live_rows) == 0:
         raise ValueError(
-            f"only {n_dates} return rows available, need more than "
-            f"estimation_window ({estimation_window}) to run any "
-            f"out-of-sample backtest"
+            f"no rows on/after first_live_date={first_live_date.date()} - "
+            f"check the returns panel covers this period"
+        )
+    if live_rows[0] == 0:
+        raise ValueError(
+            "first_live_date falls on/before the panel's first valid row - "
+            "there is no prior data to estimate the first live month's weights from"
         )
 
+    year_month = df["date"].dt.to_period("M")
     optimizer = _OPTIMIZERS[method]
     weight_rows, daily_port_returns = [], []
-    current_weights = None
+    current_weights, current_month = None, None
 
-    for t in range(estimation_window, n_dates):
-        is_rebalance_day = (t - estimation_window) % rebalance_every == 0
-        if is_rebalance_day or current_weights is None:
-            # Strictly the estimation_window rows BEFORE t - row t itself
-            # (today, not yet realised) is never in this window.
-            window = df.loc[t - estimation_window: t - 1, asset_cols]
+    for i in live_rows:
+        row_month = year_month.iloc[i]
+        if row_month != current_month:
+            # New calendar month: re-estimate on EVERY row strictly before
+            # this one - an expanding window that only ever grows, never
+            # rolls off.
+            window = df.loc[:i - 1, asset_cols]
             current_weights = optimizer(window, periods_per_year=periods_per_year, rf=rf)
-            weight_rows.append({"date": df.loc[t, "date"],
+            weight_rows.append({"date": df.loc[i, "date"],
                                  **dict(zip(asset_cols, current_weights))})
+            current_month = row_month
 
-        today_returns = df.loc[t, asset_cols].to_numpy()
-        daily_port_returns.append({"date": df.loc[t, "date"],
+        today_returns = df.loc[i, asset_cols].to_numpy()
+        daily_port_returns.append({"date": df.loc[i, "date"],
                                     "return": float(current_weights @ today_returns)})
 
     daily_returns = pd.DataFrame(daily_port_returns).set_index("date")["return"]
@@ -246,17 +249,10 @@ def oos_backtest(returns: pd.DataFrame, method: str = "min_variance",
 def performance_metrics(daily_returns: pd.Series, periods_per_year: int = 252,
                          rf: float = 0.0) -> dict:
     """Annualised return (CAGR), annualised volatility, Sharpe ratio, and
-    maximum drawdown, from a fund's realised daily-return series.
-
-    CAGR (geometric), not a simple mean*periods_per_year, is used here: a
-    fund fact sheet should report the actual compounded growth an investor
-    experienced (including volatility drag), not an arithmetic average of
-    daily moves - a different (and more appropriate) convention than the
-    pooled Part A descriptive-statistics table, which summarises a return
-    DISTRIBUTION rather than a single compounding investment.
+    max drawdown from a fund's daily-return series.
 
     rf=0 is assumed for the Sharpe ratio (stated assumption per the brief,
-    Part B Station 3, which explicitly allows this).
+    a reasonable simplification - see the report for discussion).
     """
     r = daily_returns.dropna()
     if len(r) == 0:
@@ -268,12 +264,11 @@ def performance_metrics(daily_returns: pd.Series, periods_per_year: int = 252,
         )
     n_days = len(r)
     growth = (1.0 + r).cumprod()
-    total_growth = growth.iloc[-1]
-
-    cagr = total_growth ** (periods_per_year / n_days) - 1.0
+    total_return = growth.iloc[-1] - 1.0
+    n_years = n_days / periods_per_year
+    cagr = (1.0 + total_return) ** (1.0 / n_years) - 1.0 if n_years > 0 else np.nan
     ann_vol = r.std(ddof=0) * np.sqrt(periods_per_year)
     sharpe = (cagr - rf) / ann_vol if ann_vol > 0 else np.nan
-
     running_max = growth.cummax()
     drawdown = growth / running_max - 1.0
     max_drawdown = drawdown.min()

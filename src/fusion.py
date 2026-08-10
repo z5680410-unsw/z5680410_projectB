@@ -1,9 +1,8 @@
 """Station 3 - fusion: fold equity sentiment into the Equity Min-Variance fund.
 
-Base fund: Equity Min-Variance, matching the course's own reference design (Week
-10 revision lecture, slides 32-33). We keep the base fund's weights and move them
+Base fund: Equity Min-Variance. We keep the base fund's weights and move them
 only a little, based on lagged news sentiment - a naive linear tilt is the
-baseline; the intensity-confidence extension below (Fase 7) is the innovation.
+baseline; the intensity-confidence extension below is the innovation.
 """
 import numpy as np
 import pandas as pd
@@ -35,12 +34,13 @@ def build_lagged_intensity(ticker_day_scores: pd.DataFrame,
                             trading_calendar: pd.DatetimeIndex,
                             lag_days: int = 1) -> pd.DataFrame:
     """Same lag treatment, for headline VOLUME (n_articles) rather than
-    sentiment polarity - feeds the intensity-confidence extension (Fase 7).
+    sentiment polarity - feeds the intensity-confidence extension.
     """
     wide = ticker_day_scores.pivot_table(index="trading_date", columns="ticker",
                                           values="n_articles", aggfunc="sum")
     wide = wide.reindex(pd.DatetimeIndex(trading_calendar))
     return wide.shift(lag_days)
+
 
 # ---------------------------------------------------------------------------
 # Signal construction
@@ -62,10 +62,10 @@ def rolling_zscore(lagged_panel: pd.DataFrame, window: int = 63,
 def intensity_confidence(lagged_intensity: pd.DataFrame, window: int = 63,
                           min_periods: int = 10, lo: float = 0.5,
                           hi: float = 2.0) -> pd.DataFrame:
-    """Innovation (Fase 7): a confidence multiplier per ticker/day, built
-    from how a ticker's RECENT headline volume compares to its own
-    EXPANDING historical baseline volume - both computed on the already-
-    lagged intensity panel, so this stays look-ahead-safe by construction.
+    """Innovation: a confidence multiplier per ticker/day, built from how a
+    ticker's RECENT headline volume compares to its own EXPANDING
+    historical baseline volume - both computed on the already-lagged
+    intensity panel, so this stays look-ahead-safe by construction.
 
     This directly extends the Part A finding that headline INTENSITY (not
     just presence) carries information - outlier-return days had
@@ -85,6 +85,7 @@ def intensity_confidence(lagged_intensity: pd.DataFrame, window: int = 63,
     ratio = (recent / baseline.replace(0, np.nan)).clip(lo, hi)
     return ratio.fillna(1.0)
 
+
 # ---------------------------------------------------------------------------
 # Tilt mechanics
 # ---------------------------------------------------------------------------
@@ -96,8 +97,7 @@ def tilt_weights(base_weights: pd.Series, zscore_row: pd.Series, lam: float,
     z is treated as 0 (no tilt for that name) wherever it's NaN -
     insufficient sentiment evidence defers to the base optimiser's own
     view rather than guessing. Result is clipped long-only and renormalised
-    to sum to 1, exactly matching the course's own reference formula
-    (slide 33), extended with an optional confidence multiplier.
+    to sum to 1.
     """
     z = zscore_row.reindex(base_weights.index).fillna(0.0)
     conf = (confidence_row.reindex(base_weights.index).fillna(1.0)
@@ -108,6 +108,7 @@ def tilt_weights(base_weights: pd.Series, zscore_row: pd.Series, lam: float,
     if total <= 0:
         return base_weights  # degenerate: tilt zeroed every name out, fall back to base
     return tilted / total
+
 
 def apply_sentiment(base_result: dict, equity_returns: pd.DataFrame,
                      ticker_day_scores: pd.DataFrame,
@@ -120,9 +121,9 @@ def apply_sentiment(base_result: dict, equity_returns: pd.DataFrame,
 
     `score_col` selects which sentiment column drives the tilt - by
     default finVADER, but passing "sentiment_finvader_custom" isolates the
-    effect of the custom lexicon extension (Fase 7) alone: every other
-    setting (lam, window, confidence) stays identical, so any difference
-    in the result is attributable ONLY to the lexicon.
+    effect of the custom lexicon extension alone: every other setting
+    (lam, window, confidence) stays identical, so any difference in the
+    result is attributable ONLY to the lexicon.
 
     Returns a dict in exactly the same shape as portfolios.oos_backtest(),
     so exhibits.py's fact-sheet functions work unchanged on a fused fund.
@@ -172,8 +173,9 @@ def apply_sentiment(base_result: dict, equity_returns: pd.DataFrame,
         "periods_per_year": base_result["periods_per_year"],
     }
 
+
 # ---------------------------------------------------------------------------
-# Discovery / holdout evaluation (avoids the overfitting trap - slide 36)
+# Discovery / holdout evaluation (avoids the overfitting trap)
 # ---------------------------------------------------------------------------
 
 def evaluate_on_window(result: dict, start: str, end: str,

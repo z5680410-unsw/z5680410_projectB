@@ -298,3 +298,92 @@ def plot_fusion_growth_holdout(results_by_name: dict, start: str, end: str,
     fig.savefig(save_path, dpi=150)
     plt.close(fig)
     return save_path
+
+def csv_to_table_image(csv_path, save_path, title, subtitle=None, decimals=None):
+    """Render any CSV as a clean FT-style table image (PNG) - a general-purpose
+    way to turn results/tables/*.csv or results/data/*.csv into a report-ready
+    exhibit without leaving Python.
+    """
+    df = pd.read_csv(csv_path)
+    if decimals is not None:
+        for col in df.select_dtypes(include="number").columns:
+            df[col] = df[col].round(decimals)
+
+    n_rows, n_cols = df.shape
+    title_room = 0.9 if subtitle else 0.6
+    fig_h = max(2.4, title_room + 0.4 + 0.38 * n_rows + 0.35)
+    fig, ax = plt.subplots(figsize=(max(7, n_cols * 1.6), fig_h))
+    ax.axis("off")
+
+    tbl = ax.table(cellText=df.values, colLabels=df.columns, loc="center", cellLoc="center")
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(10)
+    tbl.scale(1, 1.6)
+    tbl.auto_set_column_width(col=list(range(n_cols)))
+
+    for (row, col), cell in tbl.get_celld().items():
+        cell.set_edgecolor(plotstyle.FT_GRID)
+        if row == 0:
+            cell.set_facecolor(plotstyle.EQUITY_COLOR)
+            cell.get_text().set_color("white")
+            cell.get_text().set_weight("bold")
+        else:
+            cell.set_facecolor(plotstyle.FT_PAPER if row % 2 == 1 else "#FFFFFF")
+
+    # Custom title placement using ABSOLUTE inches (not fixed figure-fraction
+    # like plotstyle.ft_title) - a table image can be very short, and
+    # ft_title's fractions assume a taller "normal" report figure, so reused
+    # as-is here the title and subtitle text would overlap.
+    top_in = 0.85 if subtitle else 0.55
+    bottom_in = 0.35
+    top_frac = 1 - top_in / fig_h
+    bottom_frac = bottom_in / fig_h
+    title_top_in = 0.32
+
+    fig.add_artist(plt.Line2D([0.04, 0.09], [1 - 0.05 / fig_h, 1 - 0.05 / fig_h],
+                              transform=fig.transFigure, color=plotstyle.ACCENT_COLOR,
+                              linewidth=3, solid_capstyle="butt"))
+    fig.text(0.04, 1 - title_top_in / fig_h, title, ha="left", va="top",
+             fontsize=14, fontweight="bold", color=plotstyle.FT_INK)
+    if subtitle:
+        fig.text(0.04, 1 - (title_top_in + 0.26) / fig_h, subtitle, ha="left", va="top",
+                 fontsize=10, color=plotstyle.FT_INK)
+    ax.set_position([0.04, bottom_frac, 0.92, top_frac - bottom_frac])
+    fig.savefig(save_path, dpi=150)
+    plt.close(fig)
+    return save_path
+
+# ---------------------------------------------------------------------------
+# Exhibit (bonus) - VADER vs finVADER vs finVADER+custom, same headlines
+# (matches the course's own reference exhibit, slide 30, extended to 3 models)
+# ---------------------------------------------------------------------------
+
+def plot_lexicon_comparison(ticker_day_scores: pd.DataFrame, trading_calendar,
+                             save_path: Path, smoothing_window: int = 21) -> Path:
+    market = (ticker_day_scores.groupby("trading_date")[
+        ["sentiment_vader", "sentiment_finvader", "sentiment_finvader_custom"]
+    ].mean())
+    market = market.reindex(pd.DatetimeIndex(trading_calendar))
+    smoothed = market.rolling(smoothing_window, min_periods=1).mean()
+
+    labels = {"sentiment_vader": "Plain VADER", "sentiment_finvader": "finVADER",
+              "sentiment_finvader_custom": "finVADER + custom lexicon"}
+    colors = {"sentiment_vader": plotstyle.NEUTRAL_COLOR,
+              "sentiment_finvader": plotstyle.EQUITY_COLOR,
+              "sentiment_finvader_custom": "#B8860B"}
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    for col in ["sentiment_vader", "sentiment_finvader", "sentiment_finvader_custom"]:
+        mean_val = smoothed[col].mean()
+        ax.plot(smoothed.index, smoothed[col], label=f"{labels[col]} (mean {mean_val:.4f})",
+                color=colors[col], linewidth=1.2)
+    ax.set_ylabel("Market sentiment (compound)")
+    ax.legend(loc="best", fontsize=9)
+    plotstyle.ft_title(fig, "Comparing VADER, finVADER, and the custom lexicon",
+                        subtitle=f"Same headlines, three models, {smoothing_window}-day "
+                                 "rolling average of the market index")
+    plotstyle.ft_source(fig, "Source: own calculation from equity news headlines (2020-2023).")
+    fig.tight_layout(rect=[0, 0.03, 1, 0.86])
+    fig.savefig(save_path, dpi=150)
+    plt.close(fig)
+    return save_path

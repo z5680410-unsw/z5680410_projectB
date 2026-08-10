@@ -19,7 +19,7 @@ from finvader.finvader import Merge
 from finvader.SentiBignomics import lexicon1
 from finvader.Henry import lexicon2
 
-from src import CUSTOM_FINANCE_LEXICON
+from src.custom_lexicon import CUSTOM_FINANCE_LEXICON
 
 RESULTS_DATA_DIR = Path(__file__).resolve().parent.parent / "results" / "data"
 RESULTS_DATA_DIR.mkdir(parents=True, exist_ok=True)
