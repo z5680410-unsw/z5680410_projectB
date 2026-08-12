@@ -26,8 +26,11 @@ quirks: context/DATA_GUIDE.md.
 - No look-ahead: weights/signals at date t use only data strictly before t.
 - Long-only, fully invested funds: weights sum to 1, w >= 0.
 - Annualise with periods_per_year=252 for equity/combined, 365 for crypto.
-- Reuse src/plotstyle.py (FT design system) for every figure - do not
-  introduce a different visual style.
+- Two colour variants of the FT-style design system live in src/plotstyle.py
+  (navy+green, used by the deployed app) and are temporarily applied via
+  scripts/build_report_figures.py (salmon+cream, used only for the written
+  report's exhibits) - see Section 4 of the report for the rationale. Never
+  introduce a THIRD, undocumented style.
 - Exact required filenames (do not rename): results/data/fund_returns.csv,
   fund_weights.csv, sector_sentiment_index.csv, results/tables/performance_metrics.csv.
 - streamlit_app.py reads ONLY precomputed results/ files - never import nltk,
@@ -36,5 +39,6 @@ quirks: context/DATA_GUIDE.md.
 
 ## AI workflow documentation
 Detailed prompt logs (what was asked, what Claude produced, what was wrong,
-what I changed) live in ai/ - see ai/lexicon_extension_log.md for the custom
-finance-lexicon rating process specifically.
+what I changed) live in ai/ - 7 logs covering the custom finance-lexicon rating
+process (ai/lexicon_extension_log.md), a reverted transaction-cost attempt, a
+solver-reproducibility investigation, and other debugging sessions.

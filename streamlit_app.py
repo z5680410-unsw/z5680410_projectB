@@ -15,6 +15,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import streamlit as st  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.dates as mdates  # noqa: E402
+import numpy as np  # noqa: E402
 
 from src import app_data  # noqa: E402
 from src import plotstyle  # noqa: E402  (applies the FT rcParams style on import)
@@ -85,7 +87,8 @@ with tab_factsheet:
         ax.plot(growth.index, growth.values, color=plotstyle.EQUITY_COLOR, linewidth=1.3)
         ax.axhline(1.0, color=plotstyle.FT_INK, linewidth=0.6, linestyle="--", alpha=0.4)
         ax.set_ylabel("Growth of $1")
-        ax.tick_params(axis="x", rotation=30)
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=6))
+        ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
         plotstyle.ft_title(fig, f"{selected_fund} - growth of $1")
         fig.tight_layout(rect=[0, 0.02, 1, 0.82])
         st.pyplot(fig)
@@ -95,7 +98,8 @@ with tab_factsheet:
         fig, ax = plt.subplots(figsize=(5.5, 3.5))
         ax.plot(drawdown.index, drawdown.values, color=plotstyle.ACCENT_COLOR, linewidth=1.2)
         ax.set_ylabel("Drawdown (%)")
-        ax.tick_params(axis="x", rotation=30)
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=6))
+        ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
         plotstyle.ft_title(fig, f"{selected_fund} - drawdown")
         fig.tight_layout(rect=[0, 0.02, 1, 0.82])
         st.pyplot(fig)
@@ -107,7 +111,7 @@ with tab_factsheet:
     ax.barh(holdings["asset"], holdings["weight_pct"], color=plotstyle.EQUITY_COLOR)
     ax.invert_yaxis()
     ax.set_xlabel("Weight (%)")
-    plotstyle.ft_title(fig, f"{selected_fund} - top holdings")
+    plotstyle.ft_title(fig, f"{selected_fund} - top holdings", title_fontsize=10, subtitle_fontsize=8)
     fig.tight_layout(rect=[0, 0.02, 1, 0.85])
     st.pyplot(fig)
     plt.close(fig)
@@ -120,15 +124,40 @@ with tab_sentiment:
     st.caption("Built from equity news headlines only - crypto is price-only, "
                "so it has no sentiment signal.")
 
-    for fname, caption in [
-        ("sector_sentiment_index.png", None),
-        ("fear_greed_index.png", None),
-    ]:
-        path = FIGURES_DIR / fname
-        if path.exists():
-            st.image(str(path), width="stretch")
-        else:
-            st.warning(f"{fname} not found - run scripts/run_part_b.py first.")
+    sector_index = app_data.load_sector_sentiment_index()
+    all_sectors = sorted(c for c in sector_index.columns if c != "date")
+    selected_sectors = st.multiselect("Choose sectors to display", all_sectors, default=all_sectors)
+
+    if selected_sectors:
+        n = len(selected_sectors)
+        ncols = min(5, n)
+        nrows = -(-n // ncols)  # ceiling division
+        fig_h = max(2.6 * nrows, 3.3)  # floor so a 1-row grid never overlaps the title
+        fig, axes = plt.subplots(nrows, ncols, figsize=(3.2 * ncols, fig_h), sharex=True)
+        axes = np.atleast_1d(axes).flatten()
+        for ax, sector in zip(axes, selected_sectors):
+            smoothed = sector_index[sector].rolling(21, min_periods=1).mean()
+            ax.plot(sector_index["date"], smoothed, color=plotstyle.EQUITY_COLOR, linewidth=1.1)
+            ax.axhline(0, color=plotstyle.FT_INK, linewidth=0.5, alpha=0.3)
+            ax.set_title(sector, fontsize=9, fontweight="bold", loc="left")
+            ax.tick_params(axis="x", rotation=30, labelsize=7)
+        for ax in axes[len(selected_sectors):]:
+            ax.axis("off")
+        top_frac = 1 - 0.55 / fig_h
+        plotstyle.ft_title(fig, "Sector news-sentiment over time",
+                            subtitle="finVADER, 21-day rolling average",
+                            title_fontsize=11, subtitle_fontsize=8)
+        fig.tight_layout(rect=[0, 0.03, 1, top_frac])
+        st.pyplot(fig)
+        plt.close(fig)
+    else:
+        st.info("Choose at least one sector.")
+
+    fear_greed_path = FIGURES_DIR / "fear_greed_index.png"
+    if fear_greed_path.exists():
+        st.image(str(fear_greed_path), width="stretch")
+    else:
+        st.warning("fear_greed_index.png not found - run scripts/run_part_b.py first.")
 
     st.markdown("---")
     st.subheader("Does sentiment improve the equity fund? (fusion tilt)")
@@ -190,14 +219,15 @@ with tab_allocation:
 
         blend = app_data.blended_growth(fund_returns, weights, fee_annual_pct=fee)
 
-        fig, ax = plt.subplots(figsize=(9, 4.5))
+        fig, ax = plt.subplots(figsize=(9, 3.2))
         ax.plot(blend.index, blend.values, color=plotstyle.EQUITY_COLOR, linewidth=1.4)
         ax.axhline(1.0, color=plotstyle.FT_INK, linewidth=0.6, linestyle="--", alpha=0.4)
         ax.set_ylabel("Growth of $1")
         ax.tick_params(axis="x", rotation=30)
         plotstyle.ft_title(fig, "Your blended allocation",
-                           subtitle=f"Net of a {fee:.1f}% annual management fee")
-        fig.tight_layout(rect=[0, 0.02, 1, 0.85])
+                            subtitle=f"Net of a {fee:.1f}% annual management fee",
+                            title_fontsize=11, subtitle_fontsize=9)
+        fig.tight_layout(rect=[0, 0.03, 1, 0.82])
         st.pyplot(fig)
         plt.close(fig)
 

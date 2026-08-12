@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import pandas as pd
 
 from src import plotstyle, portfolios
@@ -23,18 +24,12 @@ METHOD_LABELS = {
     "risk_parity": "Risk-Parity",
     "mean_cvar": "Mean-CVaR",
 }
-# NEUTRAL_COLOR is reused deliberately (not a new arbitrary colour): equal-weight
-# IS the naive, no-optimisation baseline in this project's own methodology
-# (DeMiguel, Garlappi & Uppal, 2009), so grey-as-baseline is a genuine re-use of
-# plotstyle's existing colour semantics, not a collision with it. The other three
-# are new categorical colours chosen to stay visually distinct from
-# EQUITY_COLOR/CRYPTO_COLOR/ACCENT_COLOR, which keep their own reserved meanings.
 METHOD_COLORS = {
     "equal_weight": plotstyle.NEUTRAL_COLOR,
-    "min_variance": "#0D7680",
-    "max_sharpe": "#593380",
-    "risk_parity": "#1E874B",
-    "mean_cvar": "#B8860B",
+    "min_variance": "#2DD4BF",
+    "max_sharpe": "#A78BFA",
+    "risk_parity": "#00C896",
+    "mean_cvar": "#FBBF24",
 }
 UNIVERSES = ["Equity", "Crypto", "Combined"]
 
@@ -149,6 +144,9 @@ def plot_weights_over_time(fund_backtests: dict, fund_name: str,
                  colors=[colors[s] for s in order])
     ax.set_ylabel("Weight (%)")
     ax.set_ylim(0, 100)
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=4))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    fig.autofmt_xdate(rotation=30, ha="right")
     ax.legend(loc="upper left", fontsize=7, ncol=2, bbox_to_anchor=(1.0, 1.0))
     plotstyle.ft_title(fig, f"{fund_name} - allocation over time",
                        subtitle="Weights grouped by sector")
@@ -226,7 +224,7 @@ def plot_fear_greed_index(fear_greed: pd.DataFrame, save_path: Path) -> Path:
     ax1.plot(fear_greed["date"], fear_greed["level_0_100"], color=plotstyle.EQUITY_COLOR, linewidth=1.0)
     ax1.axhline(50, color=plotstyle.FT_INK, linewidth=0.6, linestyle="--", alpha=0.5)
     ax1.set_ylabel("Fear <-> Greed (0-100)")
-    ax1.set_title("Level - stays near or above neutral (50) most days", fontsize=10, loc="left")
+    ax1.set_title("Level - stays near or above neutral (50) most days", fontsize=9, loc="left")
 
     pos = fear_greed["standardised"].clip(lower=0)
     neg = fear_greed["standardised"].clip(upper=0)
@@ -234,10 +232,11 @@ def plot_fear_greed_index(fear_greed: pd.DataFrame, save_path: Path) -> Path:
     ax2.fill_between(fear_greed["date"], neg, color=plotstyle.ACCENT_COLOR, alpha=0.75, linewidth=0)
     ax2.axhline(0, color=plotstyle.FT_INK, linewidth=0.6)
     ax2.set_ylabel("Standardised (z)")
-    ax2.set_title("Standardised - the fear spikes the level hides", fontsize=10, loc="left")
+    ax2.set_title("Standardised - the fear spikes the level hides", fontsize=9, loc="left")
 
     plotstyle.ft_title(fig, "A market fear-and-greed index from the news",
-                       subtitle="All equity tickers, finVADER headline sentiment")
+                       subtitle="All equity tickers, finVADER headline sentiment",
+                       title_fontsize=10, subtitle_fontsize=8)
     plotstyle.ft_source(fig, "Source: own calculation from equity news headlines (2020-2023).")
     fig.tight_layout(rect=[0, 0.03, 1, 0.86])
     fig.savefig(save_path, dpi=150)
@@ -251,26 +250,35 @@ def plot_fear_greed_index(fear_greed: pd.DataFrame, save_path: Path) -> Path:
 
 def plot_fusion_discovery_holdout(comparison_df: pd.DataFrame, save_path: Path) -> Path:
     configs = comparison_df["config"].tolist()
+    short_labels = {
+        "Base (no tilt)": "Base",
+        "Naive Momentum (lam=+1)": "Naive Mom.",
+        "Naive Contrarian (lam=-1)": "Naive Contr.",
+        "Intensity Momentum (lam=+1)": "Int. Mom.",
+        "Intensity Contrarian (lam=-1)": "Int. Contr.",
+        "Intensity Momentum + Custom Lexicon (lam=+1)": "Int. Mom.+Lex.",
+    }
+    short_configs = [short_labels.get(c, c) for c in configs]
     x = np.arange(len(configs))
     width = 0.35
-    fig, ax = plt.subplots(figsize=(10, 5))
+    fig, ax = plt.subplots(figsize=(5.5, 3.5))
     ax.bar(x - width / 2, comparison_df["discovery_sharpe"], width,
            label="Discovery (2021-2022, tuned here)", color=plotstyle.NEUTRAL_COLOR)
     ax.bar(x + width / 2, comparison_df["holdout_sharpe"], width,
            label="Holdout (2023, never seen)", color=plotstyle.ACCENT_COLOR)
     ax.set_xticks(x)
-    ax.set_xticklabels(configs, rotation=20, ha="right", fontsize=8)
+    ax.set_xticklabels(short_configs, rotation=15, ha="center", fontsize=7)
     ax.axhline(0, color=plotstyle.FT_INK, linewidth=0.8)
     ax.set_ylabel("Sharpe ratio")
-    ax.legend(loc="upper right", fontsize=9)
+    ax.legend(loc="upper right", fontsize=7)
     plotstyle.ft_title(fig, "Tuning a sentiment tilt on the past can overfit the future",
                        subtitle="Equity Min-Variance base, tilt tuned on 2021-2022 then tested once on 2023")
-    plotstyle.ft_source(fig, "Source: own calculation (see fusion_comparison.csv).")
-    fig.tight_layout(rect=[0, 0.05, 1, 0.85])
+    plotstyle.ft_source(fig, "Source: own calculation (see fusion_comparison.csv). "
+                              "Full config names in Table 2.")
+    fig.tight_layout(rect=[0, 0.03, 1, 0.82])
     fig.savefig(save_path, dpi=150)
     plt.close(fig)
     return save_path
-
 
 # ---------------------------------------------------------------------------
 # Exhibit 7 (companion) - growth of $1, base vs chosen tilt, HOLDOUT only
@@ -278,7 +286,7 @@ def plot_fusion_discovery_holdout(comparison_df: pd.DataFrame, save_path: Path) 
 
 def plot_fusion_growth_holdout(results_by_name: dict, start: str, end: str,
                                 save_path: Path) -> Path:
-    fig, ax = plt.subplots(figsize=(9, 4.6))
+    fig, ax = plt.subplots(figsize=(5.5, 3.5))
     colors = [plotstyle.NEUTRAL_COLOR, plotstyle.EQUITY_COLOR]
     for color, (name, result) in zip(colors, results_by_name.items()):
         r = result["daily_returns"]
@@ -330,10 +338,6 @@ def csv_to_table_image(csv_path, save_path, title, subtitle=None, decimals=None)
         else:
             cell.set_facecolor(plotstyle.FT_PAPER if row % 2 == 1 else "#FFFFFF")
 
-    # Custom title placement using ABSOLUTE inches (not fixed figure-fraction
-    # like plotstyle.ft_title) - a table image can be very short, and
-    # ft_title's fractions assume a taller "normal" report figure, so reused
-    # as-is here the title and subtitle text would overlap.
     top_in = 0.85 if subtitle else 0.55
     bottom_in = 0.35
     top_frac = 1 - top_in / fig_h

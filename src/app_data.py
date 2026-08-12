@@ -74,3 +74,10 @@ def blended_growth(fund_returns: pd.DataFrame, weights: dict,
     daily_fee = fee_annual_pct / 100.0 / 365.0
     net_return = blended_return - daily_fee
     return (1.0 + net_return).cumprod()
+
+@st.cache_data
+def load_sector_sentiment_index() -> pd.DataFrame:
+    path = pathlib.Path(__file__).resolve().parent.parent / "results" / "data" / "sector_sentiment_index.csv"
+    df = pd.read_csv(path)
+    df["date"] = pd.to_datetime(df["date"])
+    return df
