@@ -74,5 +74,3 @@ def blended_growth(fund_returns: pd.DataFrame, weights: dict,
     daily_fee = fee_annual_pct / 100.0 / 365.0
     net_return = blended_return - daily_fee
     return (1.0 + net_return).cumprod()
-
-
