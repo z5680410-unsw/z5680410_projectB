@@ -4,6 +4,11 @@
 > and move it into fins-agent/fins2026/. The folder name carrying your zID is your
 > submission.
 
+## Submission Links
+
+- **Live app:** https://z5680410projectb-gttljv9nlgeduwm9sker4z.streamlit.app/ 
+- **Public GitHub repo:** https://github.com/z5680410-unsw/z5680410_projectB.git 
+
 Part B: funds, sentiment, and the app (DFF Stations 3-4). This folder is also your
 public GitHub repository; the app entrypoint is streamlit_app.py at the root.
 
